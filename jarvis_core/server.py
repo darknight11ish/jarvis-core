@@ -74,6 +74,13 @@ class JarvisServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
     def __init__(self, address: tuple[str, int], settings: dict[str, Any], settings_path: str | None):
+        """Build everything a request will need, once, before listening.
+
+        The journal path, the card store with its time limit from settings, and
+        this build's table of runnable actions are all decided here rather than
+        on every request. `address` is the (host, port) from settings, which is
+        127.0.0.1 unless someone changed it.
+        """
         super().__init__(address, JarvisHandler)
         self.settings = settings
         self.settings_path = settings_path
@@ -84,6 +91,13 @@ class JarvisServer(ThreadingHTTPServer):
 
 
 class JarvisHandler(BaseHTTPRequestHandler):
+    """Handles one HTTP request, and keeps nothing that outlives it.
+
+    Anything a request needs is read from the server object it was given. Each
+    route is matched exactly, and anything else gets a 404 that says why - the
+    same fail-closed habit the gate has.
+    """
+
     server_version = f"jarvis-core/{__version__}"
     sys_version = ""  # do not hand out the Python version to anyone asking
 
@@ -94,6 +108,11 @@ class JarvisHandler(BaseHTTPRequestHandler):
         return
 
     def _send(self, status: int, payload: dict[str, Any]) -> None:
+        """Write one JSON answer back to the caller.
+
+        The length header is measured on encoded bytes, so it stays right when
+        the text has an accent or an emoji in it.
+        """
         body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -136,6 +155,12 @@ class JarvisHandler(BaseHTTPRequestHandler):
     # -- routes ----------------------------------------------------------
 
     def do_GET(self) -> None:  # noqa: N802 - the name is fixed by http.server
+        """Serve the two routes that only read: /api/status and /api/card/<id>.
+
+        Neither can change anything, so neither needs an approval. Anything
+        else gets a 404 listing the four routes this build does answer, which
+        is more use to a beginner than a bare "not found".
+        """
         route = urlparse(self.path).path
         if route == "/api/status":
             self._status()
@@ -151,6 +176,14 @@ class JarvisHandler(BaseHTTPRequestHandler):
         )
 
     def do_POST(self) -> None:  # noqa: N802
+        """Serve the two routes that can do something: /api/chat and
+        /api/card/<id>.
+
+        "Can do something" is not the same as "does something". A chat runs
+        nothing unless the caller names an action, and a card runs nothing
+        unless the decision is an approval. Any other path is a 404, refused
+        rather than guessed at.
+        """
         route = urlparse(self.path).path
         if route == "/api/chat":
             self._chat()
@@ -167,6 +200,12 @@ class JarvisHandler(BaseHTTPRequestHandler):
     # -- handlers --------------------------------------------------------
 
     def _status(self) -> None:
+        """GET /api/status. Always 200, and never a guess.
+
+        It reports what the model layer actually found - reachable, installed,
+        or a sentence saying what is wrong - plus the tier table as it stands,
+        and two honest lists: what this build does, and what it does not.
+        """
         settings = self.server.settings
         state = model.check(settings)
         tiers = gate.tier_table(settings)
@@ -209,6 +248,11 @@ class JarvisHandler(BaseHTTPRequestHandler):
         )
 
     def _card_get(self, card_id: str) -> None:
+        """GET /api/card/<id>: has the owner answered that card yet?
+
+        200 with the card, or 404 if no card has that id. Polling this is how a
+        caller waits for a person to decide without holding a connection open.
+        """
         card = self.server.card_store.get(card_id)
         if card is None:
             self._fail(404, f"There is no card with id {card_id!r}.")
@@ -216,6 +260,14 @@ class JarvisHandler(BaseHTTPRequestHandler):
         self._send(200, {"ok": True, "card": card})
 
     def _card_post(self, card_id: str) -> None:
+        """POST /api/card/<id>: the owner's answer, approve or deny.
+
+        It refuses a body with no "decision", a decision that is not exactly
+        "approve" or "deny", and a card that is unknown, already answered or
+        expired. Only an approval on a card that was still pending runs
+        anything: a late "yes" answers 409 and runs nothing, and the journal
+        still records it, because a late approval is worth a record.
+        """
         body, problem = self._read_json()
         if problem:
             self._fail(400, problem)
@@ -245,6 +297,14 @@ class JarvisHandler(BaseHTTPRequestHandler):
         self._send(200 if error is None else 409, payload)
 
     def _chat(self) -> None:
+        """POST /api/chat: ask the model one question, or name one action.
+
+        Every body needs a "message" - the caller's own words, and what the
+        journal fingerprints. With an "action" the request goes through the
+        gate instead of the model. "args" with no "action" is refused, because
+        a caller who sent arguments expected something to happen. A plain chat
+        answers 200, or 503 with the model layer's own sentence.
+        """
         body, problem = self._read_json()
         if problem:
             self._fail(400, problem)
@@ -345,6 +405,7 @@ class JarvisHandler(BaseHTTPRequestHandler):
             )
 
         def runner() -> dict[str, Any]:
+            """Run this action, handing settings only to the one that needs them."""
             # write_note needs to know where the notes folder is. Rather than
             # teach every action about settings, only the one that needs it is
             # handed them - so a new action cannot quietly pick up the paths.
@@ -356,6 +417,12 @@ class JarvisHandler(BaseHTTPRequestHandler):
         return runner, _preview(args)
 
     def _call_action(self, action: str, args: dict[str, Any]) -> Any:
+        """Run an "auto" action straight away, and turn any failure into a value.
+
+        Failures come back as {"error": "..."} rather than being raised: this
+        runs inside a POST, where an exception would become a blank 500. A name
+        settings lists but this build lacks arrives the same way.
+        """
         runner, failure = self._make_runner(action, args)
         if runner is None:
             return {"error": failure}
@@ -393,6 +460,11 @@ def _preview(args: dict[str, Any], limit: int = 300) -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """The two switches this program takes: --port and --settings.
+
+    It exists so `py -3 -m jarvis_core --help` explains itself, and so there is
+    one place to change when a third switch is wanted.
+    """
     parser = argparse.ArgumentParser(
         prog="py -3 -m jarvis_core",
         description="Start the local Jarvis foundation. It only ever listens on this PC.",

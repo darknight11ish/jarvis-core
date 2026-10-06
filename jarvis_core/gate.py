@@ -58,10 +58,12 @@ class Decision:
 
     @property
     def needs_a_card(self) -> bool:
+        """True only for the tier that stops and waits for the owner: "ask"."""
         return self.tier == ASK
 
     @property
     def refused(self) -> bool:
+        """True for both kinds of no: "never", and an action nobody wrote down."""
         return self.tier in (NEVER, UNCLASSIFIED)
 
 

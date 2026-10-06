@@ -54,6 +54,12 @@ class CardStore:
     """Every raised card, for as long as the program is running."""
 
     def __init__(self, ttl_seconds: int = 120) -> None:
+        """Start empty, and remember the time limit every new card will get.
+
+        The caller passes that limit from settings (security.card_ttl_seconds),
+        so the owner can change it in the file rather than in the code. The 120
+        here is only the fallback for a caller that does not care.
+        """
         # The lock is what makes "the first answer wins" true. Every read and
         # write of a card's state happens while holding it.
         self._lock = threading.Lock()
@@ -189,9 +195,9 @@ class CardStore:
         """Force a card past its time limit, for the tests.
 
         Why this exists instead of a test that sleeps for the real time: a test
-        that waits two minutes is a test nobody runs. This calls the exact same
-        `_expire` the card's own timer calls, so what is being tested is the
-        real expiry path, reached early.
+        that waits two minutes is a test nobody runs. This walks the exact same
+        expiry path the card's own timer walks, so what is being tested is the
+        real expiry, reached early.
         """
         with self._done:
             card = self._cards.get(card_id)

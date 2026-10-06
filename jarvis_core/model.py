@@ -47,6 +47,7 @@ SYSTEM_PROMPT = (
 
 
 def _base_url(settings: dict[str, Any]) -> str:
+    """The model's address from settings, ready to have "/api/..." added to it."""
     return str(settings["model"]["base_url"]).rstrip("/")
 
 
