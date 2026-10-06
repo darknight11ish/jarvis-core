@@ -3,13 +3,17 @@
 # Description: Checks the routes that matter over real HTTP on a real socket, with a fake model standing in for Ollama. Exports the test functions only - the whole design end to end, including an ask action that runs once its card is approved.
 # ==============================================================================
 
-"""The two routes that matter, over real HTTP, on a real socket.
+"""The routes that matter, over real HTTP, on a real socket.
 
 The server is started on port 0, which means "any free port", and then asked
 for its own port number. Why go to that trouble instead of calling the handler
 functions directly: because the things most likely to be wrong here are the
 HTTP things - a missing Content-Length, a route that quietly 500s, a body that
 is not read. Calling the functions directly would test none of that.
+
+Nothing in this file ever listens on 4719, the port the owner's bigger Jarvis
+uses: every server here is on port 0, and the one test that needs a busy port
+binds port 0 as well and asks Windows which number it got.
 
 The model is a fake. Nothing in this file needs Ollama to be installed or
 running, and nothing in it can reach the internet.
@@ -19,6 +23,7 @@ from __future__ import annotations
 
 import json
 import http.client
+import socket
 import threading
 from pathlib import Path
 
@@ -37,7 +42,14 @@ def _start(settings: dict, settings_path: str):
 
 
 def _request(port: int, method: str, path: str, body: dict | None = None):
-    """One request. Returns (status, parsed JSON)."""
+    """One request. Returns (status, parsed JSON, headers, raw text).
+
+    Parsed JSON is a convenience for the JSON routes: a reply that is not JSON
+    (the page at GET / is HTML) comes back as {"_raw": ...} rather than raising.
+    The raw text and the headers are returned as well because the one HTML route
+    has to be checked for its content type and for not loading anything from
+    the internet.
+    """
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=20)
     payload = json.dumps(body).encode("utf-8") if body is not None else None
     headers = {"Content-Type": "application/json"} if payload else {}
@@ -49,7 +61,7 @@ def _request(port: int, method: str, path: str, body: dict | None = None):
         parsed = json.loads(raw)
     except json.JSONDecodeError:
         parsed = {"_raw": raw}
-    return response.status, parsed
+    return response.status, parsed, dict(response.getheaders()), raw
 
 
 def test_status_answers_json_and_says_what_this_build_does():
@@ -59,7 +71,7 @@ def test_status_answers_json_and_says_what_this_build_does():
         with sandbox() as box:
             httpd, port = _start(box["settings"], box["settings_path"])
             try:
-                status, answer = _request(port, "GET", "/api/status")
+                status, answer, _, _ = _request(port, "GET", "/api/status")
             finally:
                 httpd.shutdown()
                 httpd.server_close()
@@ -87,7 +99,7 @@ def test_status_says_plainly_when_the_model_is_absent():
         with sandbox() as box:
             httpd, port = _start(box["settings"], box["settings_path"])
             try:
-                status, answer = _request(port, "GET", "/api/status")
+                status, answer, _, _ = _request(port, "GET", "/api/status")
             finally:
                 httpd.shutdown()
                 httpd.server_close()
@@ -107,7 +119,7 @@ def test_status_says_plainly_when_the_model_is_not_installed():
         with sandbox() as box:
             httpd, port = _start(box["settings"], box["settings_path"])
             try:
-                _, answer = _request(port, "GET", "/api/status")
+                _, answer, _, _ = _request(port, "GET", "/api/status")
             finally:
                 httpd.shutdown()
                 httpd.server_close()
@@ -127,7 +139,7 @@ def test_chat_answers_and_writes_one_journal_line():
         with sandbox() as box:
             httpd, port = _start(box["settings"], box["settings_path"])
             try:
-                status, answer = _request(port, "POST", "/api/chat", {"message": "hello"})
+                status, answer, _, _ = _request(port, "POST", "/api/chat", {"message": "hello"})
             finally:
                 httpd.shutdown()
                 httpd.server_close()
@@ -150,7 +162,7 @@ def test_chat_gives_a_plain_error_when_the_model_is_down():
         with sandbox() as box:
             httpd, port = _start(box["settings"], box["settings_path"])
             try:
-                status, answer = _request(port, "POST", "/api/chat", {"message": "hello"})
+                status, answer, _, _ = _request(port, "POST", "/api/chat", {"message": "hello"})
             finally:
                 httpd.shutdown()
                 httpd.server_close()
@@ -181,7 +193,7 @@ def test_a_malformed_request_is_refused_not_guessed_at():
                 ]
                 seen = []
                 for method, path, body, expected in cases:
-                    status, answer = _request(port, method, path, body)
+                    status, answer, _, _ = _request(port, method, path, body)
                     seen.append((path, body, status, expected))
                     check_equal(status, expected, f"{path} with {body} - the HTTP status")
                     check_equal(answer["ok"], False, f"{path} with {body} - the ok field")
@@ -193,12 +205,75 @@ def test_a_malformed_request_is_refused_not_guessed_at():
         restore()
 
 
+def test_the_page_is_a_form_that_only_calls_api_chat():
+    """GET / - the one page you can type in.
+
+    The page exists so nobody has to open a second window and type curl. This
+    test checks the three things that make it safe to ship:
+
+    1. It is served as HTML, so a browser shows a page and not a download.
+    2. It has a text box and a Send button, and the only route it calls is
+       /api/chat - the same one curl calls. No card route, no action field.
+    3. It loads nothing from the internet. It is one file with the CSS and the
+       script inline, so it works on a PC with no network at all (rules 1 and 2).
+
+    The page is static, so this test needs no model and no fake one.
+    """
+    with sandbox() as box:
+        httpd, port = _start(box["settings"], box["settings_path"])
+        try:
+            status, _, headers, page = _request(port, "GET", "/")
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+    check_equal(status, 200, "the HTTP status")
+    check_in("text/html", headers.get("Content-Type", ""), "the content type")
+    check_in("<textarea", page, "the text box")
+    check_in("Send", page, "the Send button")
+    check_in("/api/chat", page, "the route the page calls")
+    check_in('"message"', page, "the field /api/chat expects")
+    check_equal(page.count("/api/"), 1, "how many routes the page calls")
+    check("http" not in page, "the page must load nothing from the internet")
+
+
+def test_the_port_check_notices_a_port_that_is_taken():
+    """The plain "already in use" sentence needs a working probe first.
+
+    JarvisServer sets SO_REUSEADDR, and on Windows a second socket with that
+    flag binds a port another program is already using without any error - so
+    the `except OSError` in main() is not enough on its own. This checks the
+    probe main() uses, and the sentence it prints.
+
+    The "busy" port here is port 0, which asks Windows for any free number. It
+    is never 4719, because the owner runs another Jarvis there.
+    """
+    listener = socket.socket()
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(5)
+    busy_port = listener.getsockname()[1]
+    try:
+        check_equal(server._port_is_answering("127.0.0.1", busy_port), True,
+                    "a port with something on it")
+    finally:
+        listener.close()
+
+    # Closed, so nothing should be answering there any more.
+    check_equal(server._port_is_answering("127.0.0.1", busy_port), False,
+                "the same port once it is free")
+    message = server._port_busy_message("127.0.0.1", busy_port)
+    check_in(f"Port {busy_port} is already in use", message, "the plain sentence")
+    check_in("something else is running there", message, "the likely cause")
+    check_in(f"--port {busy_port + 1}", message, "the way round it")
+
+
 def test_an_unknown_route_is_refused():
     with sandbox() as box:
         httpd, port = _start(box["settings"], box["settings_path"])
         try:
-            for method, path in (("GET", "/api/nope"), ("GET", "/"), ("POST", "/api/secret")):
-                status, answer = _request(port, method, path)
+            for method, path in (("GET", "/api/nope"), ("GET", "/api/secret"), ("POST", "/api/secret")):
+                status, answer, _, _ = _request(port, method, path)
                 check_equal(status, 404, f"{method} {path} - the HTTP status")
                 check_in("no route", answer["error"], "the refusal message")
         finally:
@@ -212,7 +287,7 @@ def test_the_unknown_action_fails_closed_over_http():
     with sandbox() as box:
         httpd, port = _start(box["settings"], box["settings_path"])
         try:
-            status, answer = _request(
+            status, answer, _, _ = _request(
                 port, "POST", "/api/chat",
                 {"message": "please do it", "action": "delete_everything"},
             )
@@ -230,7 +305,7 @@ def test_an_auto_action_runs_straight_away_over_http():
     with sandbox() as box:
         httpd, port = _start(box["settings"], box["settings_path"])
         try:
-            status, answer = _request(
+            status, answer, _, _ = _request(
                 port, "POST", "/api/chat",
                 {"message": "what time is it", "action": "get_time"},
             )
@@ -255,7 +330,7 @@ def test_an_ask_action_waits_and_then_runs_once_the_card_is_approved():
         httpd, port = _start(box["settings"], box["settings_path"])
         notes = box["base"] / "notes"
         try:
-            status, asked = _request(
+            status, asked, _, _ = _request(
                 port, "POST", "/api/chat",
                 {"message": "note this", "action": "write_note",
                  "args": {"text": "buy milk"}},
@@ -269,14 +344,14 @@ def test_an_ask_action_waits_and_then_runs_once_the_card_is_approved():
             check_equal(len(list(notes.glob("*.txt"))) if notes.is_dir() else 0, 0,
                         "note files written before any approval")
 
-            status, waiting = _request(port, "GET", f"/api/card/{card_id}")
+            status, waiting, _, _ = _request(port, "GET", f"/api/card/{card_id}")
             check_equal(status, 200, "reading the card")
             check_equal(waiting["card"]["state"], "pending", "the card's state while it waits")
             check_in("buy milk", json.dumps(waiting["card"]), "the card's preview of the change")
             check_equal(waiting["card"]["action"], "write_note", "the card's action")
             check_in("Write a note", waiting["card"]["title"], "the card's title")
 
-            status, decided = _request(port, "POST", f"/api/card/{card_id}",
+            status, decided, _, _ = _request(port, "POST", f"/api/card/{card_id}",
                                        {"decision": "approve"})
             check_equal(status, 200, "approving the card")
             check_equal(decided["card"]["state"], "approved", "the card's state after approval")
@@ -285,7 +360,7 @@ def test_an_ask_action_waits_and_then_runs_once_the_card_is_approved():
 
             note_files = sorted(notes.glob("*.txt")) if notes.is_dir() else []
             note_text = note_files[0].read_text(encoding="utf-8").strip() if note_files else ""
-            _, after = _request(port, "GET", f"/api/card/{card_id}")
+            _, after, _, _ = _request(port, "GET", f"/api/card/{card_id}")
             journal_lines = open(box["journal_path"], encoding="utf-8").read().splitlines()
         finally:
             httpd.shutdown()
@@ -303,7 +378,7 @@ def test_an_ask_action_writes_nothing_when_the_card_is_denied():
         httpd, port = _start(box["settings"], box["settings_path"])
         notes = box["base"] / "notes"
         try:
-            status, asked = _request(
+            status, asked, _, _ = _request(
                 port, "POST", "/api/chat",
                 {"message": "note this", "action": "write_note",
                  "args": {"text": "do not write me"}},
@@ -311,7 +386,7 @@ def test_an_ask_action_writes_nothing_when_the_card_is_denied():
             check_equal(status, 202, "the status of a request that is waiting")
             card_id = asked["waiting_for_approval"]
 
-            status, decided = _request(port, "POST", f"/api/card/{card_id}",
+            status, decided, _, _ = _request(port, "POST", f"/api/card/{card_id}",
                                        {"decision": "deny"})
             check_equal(status, 200, "denying the card")
             check_equal(decided["card"]["state"], "denied", "the card's state after denial")
@@ -334,7 +409,7 @@ def test_an_expired_card_cannot_be_approved_over_http():
         httpd, port = _start(box["settings"], box["settings_path"])
         notes = box["base"] / "notes"
         try:
-            _, asked = _request(
+            _, asked, _, _ = _request(
                 port, "POST", "/api/chat",
                 {"message": "note this", "action": "write_note",
                  "args": {"text": "too late"}},
@@ -342,7 +417,7 @@ def test_an_expired_card_cannot_be_approved_over_http():
             card_id = asked["waiting_for_approval"]
             httpd.card_store._expire_now_for_test(card_id)  # noqa: SLF001
 
-            status, refused = _request(port, "POST", f"/api/card/{card_id}",
+            status, refused, _, _ = _request(port, "POST", f"/api/card/{card_id}",
                                        {"decision": "approve"})
             notes_left = list(notes.glob("*.txt")) if notes.is_dir() else []
         finally:

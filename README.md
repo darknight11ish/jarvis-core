@@ -1,8 +1,9 @@
 # jarvis-core
 
 A small local assistant server. It runs on your own PC, answers on
-`127.0.0.1` only, and talks to one model running on the same machine. It can do
-exactly two things, and one of them waits for your permission first.
+`127.0.0.1` only, and talks to one model running on the same machine. It comes
+with a page you can type in, and it can do exactly two things - one of which
+waits for your permission first.
 
 **It is a foundation, not a product.** The point is that every line can be read
 in an evening, so the next thing built goes on top of something you understand
@@ -12,18 +13,41 @@ instead of on top of a pile.
 
 ## Run it
 
-Two commands, on any PC with Python 3.10 or newer. There is nothing to install.
+**Double-click `Start jarvis-core.bat`.** That is the whole thing.
+
+A black window opens, starts the server, and opens the page in your browser.
+Type in the box, press Send, and the answer appears. Leave the black window
+open - that is what keeps Jarvis running. Close it and Jarvis stops.
+
+There is nothing to install, and the page is one file inside this folder, so it
+works on a PC with no network at all.
+
+### The command line, if you prefer it
 
 ```powershell
 py -3 -m jarvis_core
 ```
 
+Then open <http://127.0.0.1:4719> yourself. That is the same page the
+double-click opens.
+
 ```powershell
 py -3 run_tests.py
 ```
 
-The first one starts the server. The second one runs the tests - 41 of them,
-in about three seconds, and none of them need a model or the internet.
+The tests - 43 of them, in about three seconds, and none of them need a model
+or the internet.
+
+If the port is already taken, the program says so plainly rather than showing a
+traceback - the owner runs a bigger Jarvis on 4719, so this is the likely one:
+
+```
+Port 4719 is already in use - something else is running there.
+  Close it, or start this with --port 4720: py -3 -m jarvis_core --port 4720
+```
+
+The `.bat` says the same thing, before it starts anything, and keeps its window
+open so you can read it.
 
 You also need a model to chat with, and that part is not bundled:
 
@@ -45,7 +69,7 @@ curl.exe -s http://127.0.0.1:4719/api/status
 curl.exe -s -X POST http://127.0.0.1:4719/api/chat -H "Content-Type: application/json" -d "{\"message\":\"hello\"}"
 ```
 
-Stop it with Ctrl+C.
+Stop it with Ctrl+C, or by closing the window.
 
 ---
 
@@ -140,15 +164,24 @@ curl.exe -s -X POST http://127.0.0.1:4719/api/card/<id> -H "Content-Type: applic
 
 ---
 
-## The four routes
+## The five routes
 
 | Route | What it does |
 |---|---|
+| `GET /` | The page you type in: a text box and a Send button. HTML, not JSON. It calls `POST /api/chat` and prints the reply, and that is all it can do. |
 | `GET /api/status` | Version, whether the local model is reachable, what this build does and does not do, and the whole tier table. |
 | `POST /api/chat` | `{"message": "..."}` - one question to the local model, one answer. |
 | `POST /api/chat` with `"action"` | Runs a named action instead of chatting. `get_time` runs; `write_note` raises a card. Also used for `{"action": "get_time", "args": {}}`. |
 | `GET /api/card/<id>` | The card's state: pending, approved, denied or expired. |
 | `POST /api/card/<id>` | `{"decision": "approve"}` or `{"decision": "deny"}`. |
+
+**The page adds no power.** It is a text box that calls the same route `curl`
+calls, and it cannot list a card, approve one, or name an action - this build
+has no route that could. Everything the gate does still happens on the server,
+exactly as before, and the HTML has every style and every line of script inside
+it, with nothing loaded from the internet (rules 1 and 2). There is a test that
+fails if the page ever mentions an address, so it cannot quietly grow a
+downloaded font or a CDN script.
 
 **Anything else is a 404 with a plain sentence.** Unknown route, unknown action,
 malformed body, missing setting: refuse clearly rather than guess.
@@ -193,6 +226,7 @@ Both files are git-ignored. Delete them any time; they are rebuilt.
 jarvis-core/
   README.md          this file
   CLAUDE.md          the short working rules, and a pointer to the long one
+  Start jarvis-core.bat  double-click this: starts the server and opens the page
   run_tests.py       runs every test file in tests/, in order, one at a time
   requirements.txt   deliberately empty - nothing to install
   .gitignore         settings.json, logs/, __pycache__, *.pyc, .env, *.key
@@ -200,6 +234,7 @@ jarvis-core/
     __init__.py      the version number, in one place
     __main__.py      `py -3 -m jarvis_core` starts the server
     server.py        the HTTP routes
+    page.html        the page at GET / - one file, no CDN, no build step
     gate.py          the action table, the tiers, the fail-closed rule
     cards.py         raise, wait for, decide, expire
     actions.py       the two example actions
@@ -210,7 +245,8 @@ jarvis-core/
     test_gate.py     a denied action never runs; an unclassified one FAILS CLOSED
     test_cards.py    approve runs it; deny does not; an expired card cannot be approved
     test_config.py   first run creates settings; nothing secret is tracked by git
-    test_server.py   /api/status and /api/chat answer, over a real socket
+    test_server.py   /api/status and /api/chat answer, over a real socket, and
+                     GET / serves the page that only calls /api/chat
     test_journal.py  a token-shaped string never reaches the log
     _helpers.py      a temporary folder and a fake model (not a test itself)
 ```
@@ -244,7 +280,13 @@ read a JSON object back" - about twenty lines of `urllib`.
 
 A web framework would save maybe forty lines and add a dependency, a version to
 worry about, and a hundred pages of behaviour to learn. **If this ever needs
-more than these four routes, that is the moment to reconsider** - not before.
+more than these five routes, that is the moment to reconsider** - not before.
+
+The page at `GET /` follows the same rule. It is hand-written HTML in one file
+that Python serves as-is: no framework, no npm, no build step, and nothing
+fetched from anywhere. It is here because typing a `curl` command into a second
+window is not something a person should have to do - not because this build
+wants to become a front end.
 
 The same reasoning covers the tests: no pytest, because `run_tests.py` is about
 sixty lines and keeps "clone it and run it" literally true.

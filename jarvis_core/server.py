@@ -1,10 +1,11 @@
 # ==============================================================================
 # Author: James through Deepseek Harness
-# Description: The HTTP server: four routes on this PC only, and a plain refusal for everything else. Exports JarvisServer, JarvisHandler, build_parser() and main(), plus MAX_BODY_BYTES and CLIENT_HEADER.
+# Description: The HTTP server: five routes on this PC only, and a plain refusal for everything else. Exports JarvisServer, JarvisHandler, build_parser() and main(), plus MAX_BODY_BYTES, CLIENT_HEADER and PAGE_PATH.
 # ==============================================================================
 
-"""The HTTP server: four routes, and a refusal for everything else.
+"""The HTTP server: five routes, and a refusal for everything else.
 
+    GET  /                    - the one page you can type in (HTML, not JSON)
     GET  /api/status          - is the model there, and what does this build do?
     POST /api/chat            - ask the model one question
     GET  /api/card/<id>       - has the owner answered that card yet?
@@ -12,11 +13,22 @@
     (anything else)           - 404 with a plain sentence. Fails closed.
 
 Why `http.server` from the standard library, and no web framework: the whole
-job is four routes that read and write JSON on the loopback address. A
-framework would add a dependency, a version to pin, and a hundred pages of
-behaviour to learn, to save maybe forty lines here. If this ever needs more
-than four routes, that is the moment to reconsider - and there is a note in the
+job is five routes on the loopback address, four of them reading and writing
+JSON. A framework would add a dependency, a version to pin, and a hundred pages
+of behaviour to learn, to save maybe forty lines here. If this ever needs more
+than five routes, that is the moment to reconsider - and there is a note in the
 README saying so.
+
+The page at `GET /` is the one route that answers HTML instead of JSON. It
+exists because typing a `curl` command into a second window is not something a
+person should have to do. It is deliberately the *only* convenience the page
+adds: it is a text box that calls POST /api/chat, the same route `curl` calls,
+and it can do nothing else. It cannot list cards, cannot approve one, and
+cannot name an action. The card flow is unchanged, and the gate is exactly as
+strict as it was. The HTML lives in `page.html` beside this file rather than in
+a string here: a `.bat` launcher cannot safely quote a page with `<` and `>`
+in it, so the page is one readable file that both the server and the double-
+click can point at.
 
 The shape of an `ask` action through HTTP is worth reading twice, because it is
 the whole design in four steps:
@@ -52,8 +64,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import socket
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import unquote, urlparse
 
@@ -64,6 +78,10 @@ MAX_BODY_BYTES = 64 * 1024
 
 # Sent on every answer so a front end can tell it is talking to this build.
 CLIENT_HEADER = "X-Jarvis-Client"
+
+# The one page you can type in, kept as a file so it can be read on its own.
+PAGE_PATH = Path(__file__).resolve().parent / "page.html"
+HTML_CONTENT_TYPE = "text/html; charset=utf-8"
 
 
 class JarvisServer(ThreadingHTTPServer):
@@ -125,6 +143,20 @@ class JarvisHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_html(self, html: str) -> None:
+        """Write the one HTML answer this server has: the page at GET /.
+
+        The only difference from _send is the content type, and it matters: with
+        `application/json` on a browser's request you would get a download
+        prompt instead of a page.
+        """
+        body = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", HTML_CONTENT_TYPE)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _fail(self, status: int, message: str, **extra: Any) -> None:
         """Every refusal looks the same and says why in words.
 
@@ -160,13 +192,17 @@ class JarvisHandler(BaseHTTPRequestHandler):
     # -- routes ----------------------------------------------------------
 
     def do_GET(self) -> None:  # noqa: N802 - the name is fixed by http.server
-        """Serve the two routes that only read: /api/status and /api/card/<id>.
+        """Serve the three routes that only read: the page, /api/status and
+        /api/card/<id>.
 
-        Neither can change anything, so neither needs an approval. Anything
-        else gets a 404 listing the four routes this build does answer, which
+        None of them can change anything, so none needs an approval. Anything
+        else gets a 404 listing the five routes this build does answer, which
         is more use to a beginner than a bare "not found".
         """
         route = urlparse(self.path).path
+        if route == "/":
+            self._page()
+            return
         if route == "/api/status":
             self._status()
             return
@@ -175,7 +211,7 @@ class JarvisHandler(BaseHTTPRequestHandler):
             return
         self._fail(
             404,
-            f"There is no route called {route!r}. This build answers "
+            f"There is no route called {route!r}. This build answers GET /, "
             "GET /api/status, GET /api/card/<id>, POST /api/chat and "
             "POST /api/card/<id> - and nothing else.",
         )
@@ -203,6 +239,26 @@ class JarvisHandler(BaseHTTPRequestHandler):
         )
 
     # -- handlers --------------------------------------------------------
+
+    def _page(self) -> None:
+        """GET /. The one page you can type in, and the only HTML here.
+
+        It is served from a file and never built from anything a caller sent,
+        so there is nothing here to inject into and no setting of yours in it.
+        The page does nothing the command line could not do: it POSTs to
+        /api/chat with {"message": "..."} and prints the reply. Notably absent,
+        and deliberately so: no route that lists cards, none that approves one,
+        and none that names an action.
+
+        A missing page.html would be a real fault, so it is refused in plain
+        words rather than answered with a blank 500.
+        """
+        try:
+            page = PAGE_PATH.read_text(encoding="utf-8")
+        except OSError as exc:
+            self._fail(500, f"The page file {PAGE_PATH.name} could not be read: {exc}")
+            return
+        self._send_html(page)
 
     def _status(self) -> None:
         """GET /api/status. Always 200, and never a guess.
@@ -481,6 +537,41 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _port_is_answering(host: str, port: int, timeout: float = 0.3) -> bool:
+    """Is something already listening on this address?
+
+    This exists because the `except OSError` below is not enough on Windows.
+    JarvisServer sets `allow_reuse_address` (SO_REUSEADDR), and Windows lets a
+    second socket with that flag bind an address another program is already
+    using - no error is raised at all. Without this probe, starting jarvis-core
+    while the owner's bigger Jarvis holds 4719 would appear to work and then
+    quietly share the port between two programs. Probing first means the plain
+    sentence below is what a person actually sees, on every platform.
+
+    It only ever returns True for a definite answer: a refused or timed-out
+    connection means "probably free", and the normal OSError path still covers
+    the rest.
+    """
+    probe = socket.socket()
+    probe.settimeout(timeout)
+    try:
+        probe.connect((host, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        probe.close()
+
+
+def _port_busy_message(host: str, port: int) -> str:
+    """The one sentence to show when the port is taken, before and after bind."""
+    return (
+        f"Port {port} is already in use - something else is running there.\n"
+        f"  Close it, or start this with --port {port + 1}: "
+        f"py -3 -m jarvis_core --port {port + 1}"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     """Start the server. Returns the exit code, so __main__ can just pass it on."""
     args = build_parser().parse_args(argv)
@@ -496,22 +587,35 @@ def main(argv: list[str] | None = None) -> int:
     host = str(settings["server"]["host"])
     port = int(args.port if args.port is not None else settings["server"]["port"])
 
+    # The most likely thing to go wrong for this owner, who runs a bigger
+    # Jarvis on the same port: say so plainly, and say the way round it. The
+    # common cause is named because a beginner cannot guess it.
+    if _port_is_answering(host, port):
+        print(_port_busy_message(host, port), file=sys.stderr)
+        return 2
+
     try:
         server = JarvisServer((host, port), settings, args.settings)
     except OSError as exc:
-        print(
-            f"Jarvis could not listen on {host}:{port} ({exc}).\n"
-            "Something else is probably using that port. Start it on another "
-            f"one with: py -3 -m jarvis_core --port {port + 1}",
-            file=sys.stderr,
-        )
+        # The same message if the probe somehow missed it and the bind still
+        # failed. Never a traceback for this.
+        print(_port_busy_message(host, port), file=sys.stderr)
+        print(f"  ({host}:{port}: {exc})", file=sys.stderr)
         return 2
 
-    print(f"jarvis-core {__version__} listening on http://{host}:{port}")
+    # What a beginner sees, and it is the whole instruction: open this address,
+    # and leave the window alone. Nothing in this program is logged to the
+    # console, so these lines are all that will ever appear here.
+    print(f"jarvis-core {__version__} is running.")
+    print()
+    print(f"  Open this in your browser:  http://{host}:{port}")
+    print()
+    print("  Leave this window open - that is what keeps it running.")
+    print("  To stop it, close this window or press Ctrl+C.")
+    print()
     print(f"  model:    {settings['model']['name']} at {settings['model']['base_url']}")
     print(f"  journal:  {config.journal_path(settings, args.settings)}")
-    print("  try:      curl.exe -s http://127.0.0.1:%d/api/status" % port)
-    print("  stop:     Ctrl+C")
+    print("  it only answers on this PC, so no other computer can reach it.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

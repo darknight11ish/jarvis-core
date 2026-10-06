@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jarvis-core</title>
+<style>
+  body { margin: 0; padding: 2rem 1rem; background: #101216; color: #e8e6e3;
+         font: 16px/1.5 "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 42rem; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+  p.note { color: #9aa0a6; margin: 0 0 1.25rem; }
+  textarea { width: 100%; box-sizing: border-box; min-height: 5rem; padding: .75rem;
+             background: #171a20; color: inherit; border: 1px solid #2f333b;
+             border-radius: .5rem; font: inherit; resize: vertical; }
+  button { margin-top: .75rem; padding: .6rem 1.4rem; font: inherit; font-weight: 600;
+           color: #0b0d10; background: #7fd1b9; border: 0; border-radius: .5rem;
+           cursor: pointer; }
+  button:disabled { opacity: .6; cursor: default; }
+  .card { white-space: pre-wrap; margin-top: 1.25rem; padding: .9rem 1rem;
+          background: #171a20; border: 1px solid #2f333b; border-radius: .5rem; }
+  .card.error { border-color: #a3564f; color: #ffb4a9; }
+  .hidden { display: none; }
+  footer { margin-top: 2rem; color: #9aa0a6; font-size: .85rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>jarvis-core</h1>
+  <p class="note">Type a message and press Send. This page talks to the server on this
+    PC only. Nothing is sent anywhere else.</p>
+
+  <form id="form">
+    <textarea id="message" rows="3" placeholder="Ask the local model something" required></textarea>
+    <button id="send" type="submit">Send</button>
+  </form>
+  <p id="reply" class="card hidden"></p>
+
+  <footer>
+    Send calls the same chat route as the command line, with a message field,
+    and nothing else. It cannot approve a card and cannot run an action.
+    Closing this page does not stop the server.
+  </footer>
+</main>
+<script>
+  var form = document.getElementById("form");
+  var box = document.getElementById("message");
+  var out = document.getElementById("reply");
+  var send = document.getElementById("send");
+
+  function show(text, failed) {
+    out.textContent = text;
+    out.className = failed ? "card error" : "card";
+  }
+
+  form.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    var message = box.value.trim();
+    if (!message) { return; }
+    send.disabled = true;
+    show("Thinking. The first answer can take a minute...", false);
+    try {
+      var answer = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: message })
+      });
+      var data = await answer.json();
+      if (data.ok) { show(data.reply, false); box.value = ""; }
+      else { show(data.error || "The server refused the request.", true); }
+    } catch (problem) {
+      show("Could not reach the server. Is its window still open?", true);
+    } finally {
+      send.disabled = false;
+      box.focus();
+    }
+  });
+
+  box.addEventListener("keydown", function (event) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  box.focus();
+</script>
+</body>
+</html>
