@@ -1,3 +1,8 @@
+# ==============================================================================
+# Author: James through Deepseek Harness
+# Description: The journal: one JSONL line per turn and per card decision, and never the message or reply text. Exports turn(), card_decision() and read(), plus the fingerprint() and scrub() helpers that keep a secret out of the file.
+# ==============================================================================
+
 """The journal: one file, one JSON object per line, and no secrets in it.
 
 Every turn and every card decision adds exactly one line to

@@ -1,3 +1,8 @@
+# ==============================================================================
+# Author: James through Deepseek Harness
+# Description: The whole test runner: every test file in tests/, one at a time, with no framework to install. Exports test_files(), test_functions() and main(), which prints the total and returns the exit code.
+# ==============================================================================
+
 """Run every test file in tests/, in order, one at a time.
 
     py -3 run_tests.py

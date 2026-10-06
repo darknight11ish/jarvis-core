@@ -1,3 +1,8 @@
+# ==============================================================================
+# Author: James through Deepseek Harness
+# Description: Checks the approval gate, including rule 4: nothing is ever approved on the owner's behalf. Exports the test functions only - the one that matters most proves an action nobody wrote down fails closed.
+# ==============================================================================
+
 """Rule 4 as a test: nothing is ever approved on the owner's behalf.
 
 Read this file with gate.py open next to it.

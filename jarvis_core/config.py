@@ -1,3 +1,8 @@
+# ==============================================================================
+# Author: James through Deepseek Harness
+# Description: The settings: the few numbers and switches this program needs, and where they live. Exports DEFAULTS, KNOWN_TIERS, load() and the path helpers journal_path() and data_path().
+# ==============================================================================
+
 """Settings: the few numbers and switches this program needs, and where they live.
 
 Two things this file deliberately does NOT do:

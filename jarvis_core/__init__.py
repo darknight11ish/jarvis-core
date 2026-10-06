@@ -1,3 +1,8 @@
+# ==============================================================================
+# Author: James through Deepseek Harness
+# Description: The package itself, and the one place the version number lives. Exports __version__, the only thing every other part reads to say which build it is.
+# ==============================================================================
+
 """jarvis-core - the small, honest foundation for Jarvis.
 
 One sentence of what this is: a local HTTP server that talks to a local model

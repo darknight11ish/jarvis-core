@@ -1,3 +1,8 @@
+# ==============================================================================
+# Author: James through Deepseek Harness
+# Description: Checks the log, and the promise that it never holds a secret. Exports the test functions only, plus the token-shaped FAKE_TOKEN that the first test sends through a whole turn and then looks for in the file.
+# ==============================================================================
+
 """The log, and the promise that it never holds a secret.
 
 This is rule 1 as a test. The interesting one is the first test: a token-shaped

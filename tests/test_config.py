@@ -1,3 +1,8 @@
+# ==============================================================================
+# Author: James through Deepseek Harness
+# Description: Checks settings on the first run, and that no secret can ever be tracked by git. Exports the test functions only, plus REPO_ROOT; the last test runs the real git against the real repository rather than a temporary copy.
+# ==============================================================================
+
 """Settings on first run, and the rule that no secret is ever in a file git tracks.
 
 Two halves:

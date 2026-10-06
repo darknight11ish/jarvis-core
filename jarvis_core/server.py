@@ -1,3 +1,8 @@
+# ==============================================================================
+# Author: James through Deepseek Harness
+# Description: The HTTP server: four routes on this PC only, and a plain refusal for everything else. Exports JarvisServer, JarvisHandler, build_parser() and main(), plus MAX_BODY_BYTES and CLIENT_HEADER.
+# ==============================================================================
+
 """The HTTP server: four routes, and a refusal for everything else.
 
     GET  /api/status          - is the model there, and what does this build do?

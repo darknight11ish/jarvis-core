@@ -1,3 +1,8 @@
+# ==============================================================================
+# Author: James through Deepseek Harness
+# Description: Checks the card store: the waiting, the decision and the time limit. Exports the test functions only - a yes runs the action once, a no runs nothing, and a card that timed out cannot be approved afterwards.
+# ==============================================================================
+
 """Cards: the waiting, the decision, and the time limit.
 
 The three promises this file checks, in the owner's words:

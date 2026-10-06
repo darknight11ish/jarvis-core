@@ -1,3 +1,8 @@
+# ==============================================================================
+# Author: James through Deepseek Harness
+# Description: The two example actions, kept boring on purpose so they prove the gate instead of being interesting themselves. Exports get_time, write_note, their card text in ACTION_INFO, and registry(), the table of what this build can actually run.
+# ==============================================================================
+
 """The two example actions. There are exactly two, on purpose.
 
 The point of this file is to prove the gate works, not to give Jarvis things to

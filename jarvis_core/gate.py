@@ -1,3 +1,8 @@
+# ==============================================================================
+# Author: James through Deepseek Harness
+# Description: The approval gate, the one place that decides whether a named action may run. Exports the three tier words, Decision, and tier_of()/resolve()/tier_table() - a name nobody wrote down is refused rather than guessed at.
+# ==============================================================================
+
 """The approval gate: the one place that decides whether an action may run.
 
 Read this file first if you want to understand the design. Everything else is

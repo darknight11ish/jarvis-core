@@ -1,3 +1,8 @@
+# ==============================================================================
+# Author: James through Deepseek Harness
+# Description: The Ollama client: the only part of the program that talks to anything, and only ever to this PC. Exports check() and chat(), which each answer with a result or a plain sentence and never raise.
+# ==============================================================================
+
 """The Ollama client. The only part of this program that talks to anything.
 
 Two design notes worth reading:

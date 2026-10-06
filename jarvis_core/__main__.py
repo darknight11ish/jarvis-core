@@ -1,3 +1,8 @@
+# ==============================================================================
+# Author: James through Deepseek Harness
+# Description: The way in: `py -3 -m jarvis_core` starts the server. Exports nothing of its own - it calls server.main() and passes that exit code straight on.
+# ==============================================================================
+
 """`py -3 -m jarvis_core` starts the server.
 
 Everything real lives in server.py. This file exists so there is one obvious

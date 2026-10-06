@@ -1,3 +1,8 @@
+# ==============================================================================
+# Author: James through Deepseek Harness
+# Description: A tiny test helper - not a test itself, the runner skips this file. Exports sandbox(), the throwaway folder and settings every file test uses, FakeOllama, the stand-in for the model, and the check() family of assertions.
+# ==============================================================================
+
 """A tiny test helper. Not a test itself - the runner skips this file.
 
 Two things live here:

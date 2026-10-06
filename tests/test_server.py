@@ -1,3 +1,8 @@
+# ==============================================================================
+# Author: James through Deepseek Harness
+# Description: Checks the routes that matter over real HTTP on a real socket, with a fake model standing in for Ollama. Exports the test functions only - the whole design end to end, including an ask action that runs once its card is approved.
+# ==============================================================================
+
 """The two routes that matter, over real HTTP, on a real socket.
 
 The server is started on port 0, which means "any free port", and then asked

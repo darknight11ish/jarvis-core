@@ -1,3 +1,8 @@
+# ==============================================================================
+# Author: James through Deepseek Harness
+# Description: The card store: one question to the owner, held in memory until it is answered. Exports CardStore, CardError and the four state words - an approval runs the action once, a denial runs nothing, and a timed-out card cannot be approved.
+# ==============================================================================
+
 """Cards: the thing that actually makes an `ask` action wait.
 
 A card is one question to the owner. It has an id, it has a state, and it has
