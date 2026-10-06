@@ -1,0 +1,27 @@
+# Things that must never be committed.
+#
+# The first two are the important ones. settings.json is written on first run
+# and logs/ is written by every turn and every card decision, so neither is in
+# the repository - and if either ever appears in `git ls-files`, a test fails.
+# A secret in a git commit is a secret forever, because git keeps the history.
+
+settings.json
+logs/
+
+# Python's own leftovers.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Anything that holds a credential. These should not exist here at all, which
+# is the point of listing them: a .env that appears one day will not be
+# committed by accident.
+.env
+.env.*
+*.key
+*.pem
+
+# Notes written by the write_note action, and the owner's own editor folders.
+notes/
+.vscode/
+.idea/

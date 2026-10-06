@@ -1,0 +1,9 @@
+# This file is deliberately empty, and that is a design choice not an oversight.
+#
+# The whole program uses only what comes with Python: http.server for the
+# little web server, urllib for talking to Ollama, json for the settings and
+# the log. Nothing to install, nothing to pin, nothing to update, and nothing
+# that could one day start sending data somewhere on its own.
+#
+# If a dependency is ever genuinely needed, add it here with a version and a
+# one-line reason next to it, and update this comment.
